@@ -1,60 +1,34 @@
-import http from 'http';
-import app from './app.js';
-import connectDB from './config/db.js';
-import { Server } from 'socket.io';
-import Message from './models/Message.js';
+const express = require('express');
+const mongoose = require('mongoose');
+const cors = require('cors');
+const dotenv = require('dotenv');
 
-// Connect to database
-connectDB();
+dotenv.config();
+
+const authRoutes = require('./routes/authRoutes');
+const runRoutes = require('./routes/runRoutes');
+const submissionRoutes = require('./routes/submissionRoutes');
+
+const app = express();
+
+app.use(cors());
+app.use(express.json());
+
+// Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/run', runRoutes);
+app.use('/api/submissions', submissionRoutes);
 
 const PORT = process.env.PORT || 5000;
+const MONGO_URI = process.env.MONGO_URI;
 
-const server = http.createServer(app);
-
-// Initialize Socket.io
-const io = new Server(server, {
-  cors: {
-    origin: 'http://localhost:5173', // Vite default port
-    methods: ['GET', 'POST'],
-  },
-});
-
-const users = new Map();
-
-io.on('connection', (socket) => {
-  console.log(`Socket connected: ${socket.id}`);
-  
-  socket.on('register_user', (userId) => {
-    users.set(userId, socket.id);
+mongoose.connect(MONGO_URI)
+  .then(() => {
+    console.log('Connected to MongoDB');
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('Failed to connect to MongoDB', err);
   });
-
-  socket.on('send_message', async (data) => {
-    const { sender, receiver, text } = data;
-    
-    try {
-      const message = new Message({ sender, receiver, text });
-      await message.save();
-      
-      const receiverSocketId = users.get(receiver);
-      if (receiverSocketId) {
-        io.to(receiverSocketId).emit('receive_message', message);
-      }
-    } catch (error) {
-      console.error('Error saving message', error);
-    }
-  });
-
-  socket.on('disconnect', () => {
-    console.log(`Socket disconnected: ${socket.id}`);
-    for (let [userId, socketId] of users.entries()) {
-      if (socketId === socket.id) {
-        users.delete(userId);
-        break;
-      }
-    }
-  });
-});
-
-server.listen(PORT, () => {
-  console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
-});
